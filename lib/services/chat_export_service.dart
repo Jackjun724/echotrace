@@ -1562,6 +1562,7 @@ class ChatExportService {
   }) async {
     final Workbook workbook = Workbook();
     final totalMessages = messages.length;
+    final Map<String, int> senderMessageCounts = {};
     onProgress?.call(0, totalMessages, '准备工作簿...');
     try {
       // 获取联系人详细信息
@@ -1593,14 +1594,11 @@ class ChatExportService {
       currentRow++;
 
       // 设置表头
-      _setTextSafe(sheet, currentRow, 1, '序号');
+      _setTextSafe(sheet, currentRow, 1, '日期');
       _setTextSafe(sheet, currentRow, 2, '时间');
       _setTextSafe(sheet, currentRow, 3, '发送者昵称');
-      _setTextSafe(sheet, currentRow, 4, '发送者微信ID');
-      _setTextSafe(sheet, currentRow, 5, '发送者备注');
-      _setTextSafe(sheet, currentRow, 6, '发送者身份');
-      _setTextSafe(sheet, currentRow, 7, '消息类型');
-      _setTextSafe(sheet, currentRow, 8, '内容');
+      _setTextSafe(sheet, currentRow, 4, '消息类型');
+      _setTextSafe(sheet, currentRow, 5, '内容');
       currentRow++;
 
       // 获取所有发送者的显示名称
@@ -1707,20 +1705,24 @@ class ChatExportService {
         }
 
         senderWxid = _sanitizeUsername(senderWxid);
+        
+        // 统计消息数量
+        senderMessageCounts[senderNickname] = (senderMessageCounts[senderNickname] ?? 0) + 1;
 
         final mediaItem = mediaHelper == null
             ? null
             : await mediaHelper.exportForMessage(msg);
         final exportContent = _resolveExportContent(msg, mediaItem);
 
-        sheet.getRangeByIndex(currentRow, 1).setNumber(i + 1);
-        _setTextSafe(sheet, currentRow, 2, msg.formattedCreateTime);
+        final dt = DateTime.fromMillisecondsSinceEpoch(msg.createTime * 1000);
+        final dateStr = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+        final timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';
+
+        _setTextSafe(sheet, currentRow, 1, dateStr);
+        _setTextSafe(sheet, currentRow, 2, timeStr);
         _setTextSafe(sheet, currentRow, 3, senderNickname);
-        _setTextSafe(sheet, currentRow, 4, senderWxid);
-        _setTextSafe(sheet, currentRow, 5, senderRemark);
-        _setTextSafe(sheet, currentRow, 6, senderRole);
-        _setTextSafe(sheet, currentRow, 7, msg.typeDescription);
-        _setTextSafe(sheet, currentRow, 8, exportContent);
+        _setTextSafe(sheet, currentRow, 4, msg.typeDescription);
+        _setTextSafe(sheet, currentRow, 5, exportContent);
         currentRow++;
 
         // 每 500 条报告一次进度
@@ -1730,15 +1732,30 @@ class ChatExportService {
         }
       }
 
-      // 自动调整列宽（Syncfusion 使用 1-based 索引）
-      sheet.getRangeByIndex(1, 1).columnWidth = 8; // 序号
-      sheet.getRangeByIndex(1, 2).columnWidth = 20; // 时间
+      // 自动调整列宽
+      sheet.getRangeByIndex(1, 1).columnWidth = 12; // 日期
+      sheet.getRangeByIndex(1, 2).columnWidth = 10; // 时间
       sheet.getRangeByIndex(1, 3).columnWidth = 20; // 发送者昵称
-      sheet.getRangeByIndex(1, 4).columnWidth = 25; // 发送者微信ID
-      sheet.getRangeByIndex(1, 5).columnWidth = 20; // 发送者备注
-      sheet.getRangeByIndex(1, 6).columnWidth = 18; // 发送者身份
-      sheet.getRangeByIndex(1, 7).columnWidth = 12; // 消息类型
-      sheet.getRangeByIndex(1, 8).columnWidth = 50; // 内容
+      sheet.getRangeByIndex(1, 4).columnWidth = 12; // 消息类型
+      sheet.getRangeByIndex(1, 5).columnWidth = 50; // 内容
+
+      // 添加消息统计 Sheet
+      final summarySheet = workbook.worksheets.addWithName('消息统计');
+      _setTextSafe(summarySheet, 1, 1, '发送人');
+      _setTextSafe(summarySheet, 1, 2, '消息数量');
+      
+      int summaryRow = 2;
+      final sortedEntries = senderMessageCounts.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+        
+      for (final entry in sortedEntries) {
+        _setTextSafe(summarySheet, summaryRow, 1, entry.key);
+        summarySheet.getRangeByIndex(summaryRow, 2).setNumber(entry.value.toDouble());
+        summarySheet.getRangeByIndex(summaryRow, 2).numberFormat = '0';
+        summaryRow++;
+      }
+      summarySheet.getRangeByIndex(1, 1).columnWidth = 25;
+      summarySheet.getRangeByIndex(1, 2).columnWidth = 15;
 
       if (avatars.isNotEmpty) {
         final avatarSheet = workbook.worksheets.addWithName('头像索引');
@@ -1758,8 +1775,9 @@ class ChatExportService {
       }
 
       if (filePath == null) {
+        final dateStr = DateTime.now().toString().split(' ')[0];
         final suggestedName =
-            '${session.displayName ?? session.username}_聊天记录_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+            '${session.displayName ?? session.username}_$dateStr.xlsx';
         final outputFile = await FilePicker.platform.saveFile(
           dialogTitle: '保存聊天记录',
           fileName: suggestedName,
@@ -2264,6 +2282,7 @@ class ChatExportService {
     MediaExportOptions? mediaOptions,
   }) async {
     final Workbook workbook = Workbook();
+    final Map<String, int> senderMessageCounts = {};
     try {
       final totalMessages = totalMessagesHint > 0
           ? totalMessagesHint
@@ -2293,14 +2312,11 @@ class ChatExportService {
       currentRow++;
       currentRow++;
 
-      _setTextSafe(sheet, currentRow, 1, '序号');
+      _setTextSafe(sheet, currentRow, 1, '日期');
       _setTextSafe(sheet, currentRow, 2, '时间');
       _setTextSafe(sheet, currentRow, 3, '发送者昵称');
-      _setTextSafe(sheet, currentRow, 4, '发送者微信ID');
-      _setTextSafe(sheet, currentRow, 5, '发送者备注');
-      _setTextSafe(sheet, currentRow, 6, '发送者身份');
-      _setTextSafe(sheet, currentRow, 7, '消息类型');
-      _setTextSafe(sheet, currentRow, 8, '内容');
+      _setTextSafe(sheet, currentRow, 4, '消息类型');
+      _setTextSafe(sheet, currentRow, 5, '内容');
       currentRow++;
 
       final rawAccountWxid = _databaseService.currentAccountWxid ?? '';
@@ -2375,20 +2391,24 @@ class ChatExportService {
             }
 
             senderWxid = _sanitizeUsername(senderWxid);
+            
+            // 统计
+            senderMessageCounts[senderNickname] = (senderMessageCounts[senderNickname] ?? 0) + 1;
 
             final mediaItem = mediaHelper == null
                 ? null
                 : await mediaHelper.exportForMessage(msg);
             final exportContent = _resolveExportContent(msg, mediaItem);
+            
+            final dt = DateTime.fromMillisecondsSinceEpoch(msg.createTime * 1000);
+            final dateStr = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+            final timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}';
 
-            sheet.getRangeByIndex(currentRow, 1).setNumber(index.toDouble());
-            _setTextSafe(sheet, currentRow, 2, msg.formattedCreateTime);
+            _setTextSafe(sheet, currentRow, 1, dateStr);
+            _setTextSafe(sheet, currentRow, 2, timeStr);
             _setTextSafe(sheet, currentRow, 3, senderNickname);
-            _setTextSafe(sheet, currentRow, 4, senderWxid);
-            _setTextSafe(sheet, currentRow, 5, senderRemark);
-            _setTextSafe(sheet, currentRow, 6, senderRole);
-            _setTextSafe(sheet, currentRow, 7, msg.typeDescription);
-            _setTextSafe(sheet, currentRow, 8, exportContent);
+            _setTextSafe(sheet, currentRow, 4, msg.typeDescription);
+            _setTextSafe(sheet, currentRow, 5, exportContent);
             currentRow++;
           }
 
@@ -2413,14 +2433,27 @@ class ChatExportService {
             )
           : <String, Map<String, String>>{};
 
-      sheet.getRangeByIndex(1, 1).columnWidth = 8;
-      sheet.getRangeByIndex(1, 2).columnWidth = 20;
+      sheet.getRangeByIndex(1, 1).columnWidth = 12;
+      sheet.getRangeByIndex(1, 2).columnWidth = 10;
       sheet.getRangeByIndex(1, 3).columnWidth = 20;
-      sheet.getRangeByIndex(1, 4).columnWidth = 25;
-      sheet.getRangeByIndex(1, 5).columnWidth = 20;
-      sheet.getRangeByIndex(1, 6).columnWidth = 18;
-      sheet.getRangeByIndex(1, 7).columnWidth = 12;
-      sheet.getRangeByIndex(1, 8).columnWidth = 50;
+      sheet.getRangeByIndex(1, 4).columnWidth = 12;
+      sheet.getRangeByIndex(1, 5).columnWidth = 50;
+
+      // 统计 Sheet
+      final summarySheet = workbook.worksheets.addWithName('消息统计');
+      _setTextSafe(summarySheet, 1, 1, '发送人');
+      _setTextSafe(summarySheet, 1, 2, '消息数量');
+      int summaryRow = 2;
+      final sortedEntries = senderMessageCounts.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      for (final entry in sortedEntries) {
+        _setTextSafe(summarySheet, summaryRow, 1, entry.key);
+        summarySheet.getRangeByIndex(summaryRow, 2).setNumber(entry.value.toDouble());
+        summarySheet.getRangeByIndex(summaryRow, 2).numberFormat = '0';
+        summaryRow++;
+      }
+      summarySheet.getRangeByIndex(1, 1).columnWidth = 25;
+      summarySheet.getRangeByIndex(1, 2).columnWidth = 15;
 
       if (avatars.isNotEmpty) {
         final avatarSheet = workbook.worksheets.addWithName('头像索引');
@@ -2440,8 +2473,9 @@ class ChatExportService {
       }
 
       if (filePath == null) {
+        final dateStr = DateTime.now().toString().split(' ')[0];
         final suggestedName =
-            '${session.displayName ?? session.username}_聊天记录_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+            '${session.displayName ?? session.username}_$dateStr.xlsx';
         final outputFile = await FilePicker.platform.saveFile(
           dialogTitle: '保存聊天记录',
           fileName: suggestedName,

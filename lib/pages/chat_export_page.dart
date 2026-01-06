@@ -1810,9 +1810,17 @@ class _ExportProgressDialogState extends State<_ExportProgressDialog> {
         if (widget.exportMedia) {
           await Directory(exportDir).create(recursive: true);
         }
+        final dateStr = startTime != null
+            ? DateTime.fromMillisecondsSinceEpoch(startTime * 1000)
+                .toUtc()
+                .add(const Duration(hours: 8))
+                .toIso8601String()
+                .split('T')[0]
+            : null;
+        final safeNameWithDate = dateStr != null ? '${safeName}_$dateStr' : safeName;
         final savePath = widget.exportMedia
-            ? p.join(exportDir, '$safeName.${widget.format}')
-            : p.join(widget.exportFolder, '${safeName}_$timestamp.${widget.format}');
+            ? p.join(exportDir, '$safeNameWithDate.${widget.format}')
+            : p.join(widget.exportFolder, '${safeNameWithDate}_$timestamp.${widget.format}');
         final mediaOptions = widget.exportMedia
             ? MediaExportOptions(
                 exportImages: widget.exportImages,
